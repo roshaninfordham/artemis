@@ -118,6 +118,76 @@ def test_desktop_notifier_enabled_by_default(monkeypatch):
     assert notifier.is_available() is True
 
 
+def test_desktop_notifier_darwin_does_not_interpolate_untrusted_text(monkeypatch):
+    import shutil
+    import subprocess
+    import sys
+
+    monkeypatch.delenv("ARTEMIS_DESKTOP_NOTIFY", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        shutil, "which", lambda cmd: "/usr/bin/osascript" if cmd == "osascript" else None
+    )
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env")
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    payload = 'pwned" \ndo shell script "touch /tmp/artemis_pwned"\n--'
+    notifier = DesktopNotifier()
+    assert notifier.notify("conv-1", payload, title=payload) is True
+
+    script = captured["cmd"][2]
+    assert payload not in script
+    assert "do shell script" not in script
+    assert captured["env"]["ARTEMIS_NOTIFY_BODY"] == payload
+    assert captured["env"]["ARTEMIS_NOTIFY_TITLE"] == payload
+
+
+def test_desktop_notifier_windows_does_not_interpolate_untrusted_text(monkeypatch):
+    import shutil
+    import subprocess
+    import sys
+
+    monkeypatch.delenv("ARTEMIS_DESKTOP_NOTIFY", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/" + cmd)
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env")
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    payload = '"); Start-Process calc.exe; ("'
+    notifier = DesktopNotifier()
+    assert notifier.notify("conv-1", payload, title=payload) is True
+
+    script = captured["cmd"][2]
+    assert payload not in script
+    assert "Start-Process" not in script
+    assert captured["env"]["ARTEMIS_NOTIFY_BODY"] == payload
+    assert captured["env"]["ARTEMIS_NOTIFY_TITLE"] == payload
+
+
 def test_script_notifier(monkeypatch):
     from mcp_server.notifiers.script import ScriptNotifier
 
