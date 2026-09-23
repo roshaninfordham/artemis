@@ -80,19 +80,21 @@ class DesktopNotifier(BaseNotifier):
                 if shutil.which("osascript"):
                     # header/clean_body are untrusted (can be derived from on-screen
                     # app content). Never interpolate them into the script source -
-                    # pass them via the subprocess environment and have the fixed
-                    # script text read them back with `system attribute`.
+                    # pass them as `on run argv` arguments instead of splicing them
+                    # into the AppleScript text. (An earlier version of this fix used
+                    # `system attribute` + env vars, but `system attribute` re-decodes
+                    # its value through the wrong text encoding and corrupts non-ASCII
+                    # input, including the default "☕ Artemis Task ..." title -
+                    # `argv` values are passed through as literal UTF-8 unchanged.)
+                    # `--` stops osascript from treating a title/body that happens to
+                    # equal "-e" or "--" as its own flag.
                     script = (
-                        'display notification (system attribute "ARTEMIS_NOTIFY_BODY") '
-                        'with title (system attribute "ARTEMIS_NOTIFY_TITLE")'
+                        "on run argv\n"
+                        "    display notification (item 2 of argv) with title (item 1 of argv)\n"
+                        "end run"
                     )
                     subprocess.run(
-                        ["osascript", "-e", script],
-                        env={
-                            **os.environ,
-                            "ARTEMIS_NOTIFY_TITLE": header,
-                            "ARTEMIS_NOTIFY_BODY": clean_body,
-                        },
+                        ["osascript", "-e", script, "--", header, clean_body],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         timeout=3,
